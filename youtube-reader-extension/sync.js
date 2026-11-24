@@ -96,7 +96,7 @@ async function resolveChannel(input) {
     return lookupChannelPage(`https://www.youtube.com${m[1]}`);
   }
   // A video URL: look the channel up from the watch page
-  if ((m = s.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/)([\w-]{11})/))) {
+  if ((m = s.match(/(?:youtu\.be\/|[?&]v=|\/shorts\/|\/live\/|\/embed\/)([\w-]{11})/))) {
     return lookupChannelPage(`https://www.youtube.com/watch?v=${m[1]}`);
   }
   throw Object.assign(new Error("invalid"), { code: "invalid" });

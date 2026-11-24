@@ -184,5 +184,13 @@ window.__ytReader = (() => {
     return { ok: true, confirmed: state === false };
   }
 
-  return { listSubscriptions, unsubscribe };
+  // A thrown error would reach the extension only as "no result"; return it instead (B10)
+  const safe = (fn) => async (...args) => {
+    try {
+      return await fn(...args);
+    } catch (e) {
+      return { error: e?.message || String(e) };
+    }
+  };
+  return { listSubscriptions: safe(listSubscriptions), unsubscribe: safe(unsubscribe) };
 })();

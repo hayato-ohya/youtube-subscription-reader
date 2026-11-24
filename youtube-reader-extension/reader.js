@@ -120,6 +120,19 @@ const translations = {
     importError: "インポートに失敗しました: ",
     opmlTitle: "YouTube登録チャンネル",
     fetchError: "取得エラー: ",
+    errNotLoggedIn: "YouTubeにログインしていません",
+    errEmptyFeed: "フィードが空でした（一時的な不具合の可能性があります）",
+    errNotFeed: "YouTubeのフィードではない応答が返されました",
+    errNotFound: "見つかりません（HTTP 404。チャンネルが削除された可能性があります）",
+    errHttp: "サーバーエラー（HTTP ${status}）",
+    errTimeout: "時間内に応答がありませんでした",
+    errNetwork: "ネットワークに接続できませんでした",
+    errYtTimeout: "YouTubeのページの読み込みが時間内に終わりませんでした",
+    errTabClosed: "処理中にYouTubeのタブが閉じられました",
+    errNoResult: "YouTubeのページから結果を受け取れませんでした",
+    errPageUnreadable: "YouTubeのページの内容を読み取れませんでした（YouTube側の仕様変更の可能性があります）",
+    errStillSubscribed: "YouTubeでまだ登録されたままです",
+    errInvalidId: "チャンネルIDが正しくありません",
     defaultFolder: "フォルダ",
   },
   en: {
@@ -242,6 +255,19 @@ const translations = {
     importError: "Import failed: ",
     opmlTitle: "YouTube Subscriptions",
     fetchError: "Fetch error: ",
+    errNotLoggedIn: "Not signed in to YouTube",
+    errEmptyFeed: "The feed was empty (possibly a temporary glitch)",
+    errNotFeed: "The response was not a YouTube feed",
+    errNotFound: "Not found (HTTP 404; the channel may have been deleted)",
+    errHttp: "Server error (HTTP ${status})",
+    errTimeout: "No response in time",
+    errNetwork: "Could not connect to the network",
+    errYtTimeout: "The YouTube page did not finish loading in time",
+    errTabClosed: "The YouTube tab was closed while working",
+    errNoResult: "Got no result from the YouTube page",
+    errPageUnreadable: "Could not read the YouTube page (YouTube may have changed it)",
+    errStillSubscribed: "YouTube still shows the channel as subscribed",
+    errInvalidId: "Invalid channel ID",
     defaultFolder: "Folder",
   },
 };
@@ -306,6 +332,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   renderAll();
   startAutoRefresh();
   if (isStale()) refreshAll();
+  fillMissingAvatars();
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && isStale()) refreshAll();
@@ -599,7 +626,7 @@ function channelItem(c, count, inFolder) {
   li.innerHTML = `
     ${avatarHtml(c, "avatar")}
     <span class="item-name">${esc(c.title || c.id)}</span>
-    ${c.error ? `<span class="item-error" title="${esc(t("fetchError") + c.error)}">⚠</span>` : ""}
+    ${c.error ? `<span class="item-error" title="${esc(t("fetchError") + describeError(c.error))}">⚠</span>` : ""}
     <span class="item-count">${count || ""}</span>`;
   li.addEventListener("click", () => select({ type: "channel", id: c.id }));
   li.addEventListener("contextmenu", (e) => showChannelMenu(e, c));
@@ -949,7 +976,7 @@ function renderStats() {
               const dormantRow = r.last && now - r.last > 180 * day;
               return `<tr data-id="${esc(c.id)}" class="${dormantRow ? "dormant" : ""}">
                 <td><div class="name">${avatarHtml(c, "avatar")}<span>${esc(c.title || c.id)}</span>${
-                  c.error ? `<span class="item-error" title="${esc(t("fetchError") + c.error)}">⚠</span>` : ""
+                  c.error ? `<span class="item-error" title="${esc(t("fetchError") + describeError(c.error))}">⚠</span>` : ""
                 }</div></td>
                 <td class="num">${r.last ? esc(relativeTime(r.last)) : "—"}</td>
                 <td class="num">${esc(formatRate(r.rate))}</td>
@@ -1078,12 +1105,25 @@ function scrollMarkActive() {
   return settings.markWatchedOnScroll && selection.type !== "later";
 }
 
+// Called whenever videos are added to the list. The observer lives as long as the list:
+// re-creating it on every new page (as before) dropped notifications in flight and
+// ignored the first one for every video, so a video crossing the top just then was
+// missed (B11). renderVideos disconnects it when the list is rebuilt.
+let firstNotification = new Set();
+
 function observeForScrollMark() {
-  disconnectScrollObserver();
-  if (!scrollMarkActive()) return;
+  if (!scrollMarkActive()) return disconnectScrollObserver();
+  if (scrollObserver) {
+    videoListEl.querySelectorAll(".video:not(.watched):not([data-observed])").forEach((el) => {
+      el.dataset.observed = "1";
+      firstNotification.add(el);
+      scrollObserver.observe(el);
+    });
+    return;
+  }
   // An observer's first callback for an element only reports where it is now; it never
   // means the user scrolled past it, so it must not mark anything.
-  const firstNotification = new Set();
+  firstNotification = new Set();
   scrollObserver = new IntersectionObserver(
     (entries) => {
       for (const e of entries) {
@@ -1102,6 +1142,7 @@ function observeForScrollMark() {
     { root: videoListEl, threshold: 0 }
   );
   videoListEl.querySelectorAll(".video:not(.watched)").forEach((el) => {
+    el.dataset.observed = "1";
     firstNotification.add(el);
     scrollObserver.observe(el);
   });
@@ -1182,7 +1223,7 @@ async function syncSubscriptions() {
   try {
     subs = await fetchSubscriptionsFromYouTube();
   } catch (e) {
-    alert(e.code === "notLoggedIn" ? t("syncNotLoggedIn") : t("syncError") + (e.message || e));
+    alert(e.code === "notLoggedIn" ? t("syncNotLoggedIn") : t("syncError") + describeError(e));
     return;
   } finally {
     btn.disabled = false;
@@ -1232,6 +1273,7 @@ async function syncSubscriptions() {
   renderAll();
   alert(t("syncDone", { added: added.length, removed, total: subs.length }));
   if (added.length) refreshAll(added);
+  fillMissingAvatars();
 }
 
 // ===== Add channel / folder =====
@@ -1277,7 +1319,7 @@ async function addChannelFromModal() {
     select({ type: "channel", id: ch.id });
   } catch (e) {
     const msg =
-      e.code === "invalid" ? t("invalidInput") : e.code === "notFound" ? t("channelNotFound") : t("fetchError") + (e.message || e);
+      e.code === "invalid" ? t("invalidInput") : e.code === "notFound" ? t("channelNotFound") : t("fetchError") + describeError(e);
     showModalError("channel-modal", msg);
   } finally {
     okBtn.disabled = false;
@@ -1293,6 +1335,31 @@ async function addFolderFromModal() {
   closeModal("folder-modal");
   renderSidebar();
   renderChannelBar();
+}
+
+// Channels added by import (or whose page could not be read) have no avatar; fetch it
+// later from the channel page. Tried at most once a day per channel.
+let fillingAvatars = false;
+async function fillMissingAvatars() {
+  if (fillingAvatars) return;
+  const now = Date.now();
+  const targets = channels.filter((c) => !c.thumbnail && !(c.avatarTriedAt && now - c.avatarTriedAt < 86400000));
+  if (!targets.length) return;
+  fillingAvatars = true;
+  try {
+    await runPool(targets, 3, async (c) => {
+      const info = await lookupChannelPage(`https://www.youtube.com/channel/${c.id}`, c.id).catch(() => null);
+      const ch = channelById(c.id); // may have been removed meanwhile
+      if (!ch) return;
+      ch.avatarTriedAt = Date.now();
+      if (info?.thumbnail) ch.thumbnail = info.thumbnail;
+      if (!ch.title && info?.title) ch.title = info.title;
+    });
+    await saveChannels();
+    renderSidebar();
+  } finally {
+    fillingAvatars = false;
+  }
 }
 
 // Remove channels, together with their videos' "Watch later" entries (B6)
@@ -1364,6 +1431,18 @@ function ytAutoplay() {
       } catch (e) {
         if (e.name !== "NotAllowedError" || triedMuted) return;
         triedMuted = true;
+        // Muting through the player also saves "muted" as the user's YouTube preference,
+        // which would mute every video they open later (B12). Put the saved preference
+        // back once this one is playing; this video stays muted until they unmute it.
+        const saved = ["localStorage", "sessionStorage"].map((s) => [s, window[s].getItem("yt-player-volume")]);
+        const restore = () => {
+          for (const [s, value] of saved) {
+            if (value === null) window[s].removeItem("yt-player-volume");
+            else window[s].setItem("yt-player-volume", value);
+          }
+        };
+        video.addEventListener("playing", () => setTimeout(() => video.muted && restore(), 1000), { once: true });
+        window.addEventListener("pagehide", () => video.muted && restore(), { once: true });
         if (player?.mute) player.mute();
         else video.muted = true;
         if (player?.playVideo) player.playVideo();
@@ -1509,7 +1588,7 @@ async function unsubscribeChannel(c) {
     await unsubscribeOnYouTube(c.id);
   } catch (e) {
     setTransientStatus(null);
-    alert(e.code === "notLoggedIn" ? t("syncNotLoggedIn") : t("unsubscribeError") + (e.message || e));
+    alert(e.code === "notLoggedIn" ? t("syncNotLoggedIn") : t("unsubscribeError") + describeError(e));
     return;
   } finally {
     unsubscribingIds.delete(c.id);
@@ -1582,8 +1661,9 @@ async function handleImport(e) {
     renderAll();
     alert(t("importDone", { n: added.length }));
     if (added.length) refreshAll(added.map((f) => f.id));
+    fillMissingAvatars();
   } catch (err) {
-    alert(t("importError") + (err.message || err));
+    alert(t("importError") + describeError(err));
   }
 }
 
@@ -1594,6 +1674,31 @@ function exportOpml() {
   a.download = "youtube-subscriptions.opml";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ===== Error messages =====
+// Errors are kept as their (English) internal messages, e.g. in channel.error; this turns
+// them into a message in the UI language. Anything unknown is shown as is.
+function describeError(err) {
+  // (a DOMException's .code is a number, so only a string code counts)
+  const msg = typeof err === "string" ? err : (typeof err?.code === "string" && err.code) || err?.message || String(err);
+  const known = {
+    notLoggedIn: "errNotLoggedIn",
+    "Empty feed": "errEmptyFeed",
+    "Not a YouTube feed": "errNotFeed",
+    "Failed to fetch": "errNetwork",
+    "Timed out loading YouTube": "errYtTimeout",
+    "The YouTube tab was closed": "errTabClosed",
+    "No result from YouTube page": "errNoResult",
+    "Could not read the YouTube page": "errPageUnreadable",
+    "YouTube reported the channel as still subscribed": "errStillSubscribed",
+    "Invalid channel id": "errInvalidId",
+  };
+  if (known[msg]) return t(known[msg]);
+  if (/timed? ?out|TimeoutError/i.test(msg)) return t("errTimeout");
+  const http = msg.match(/^HTTP (\d+)$/);
+  if (http) return http[1] === "404" ? t("errNotFound") : t("errHttp", { status: http[1] });
+  return msg;
 }
 
 // ===== Formatting =====
