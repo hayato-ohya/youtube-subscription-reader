@@ -108,8 +108,8 @@ async function updateBadge() {
     await chrome.action.setBadgeText({ text: "" });
     return;
   }
-  const { channels = [], watchedVideos = [] } = await chrome.storage.local.get(["channels", "watchedVideos"]);
-  const opts = { watched: new Set(watchedVideos), hideShorts: s.hideShorts, maxAgeDays: s.maxAgeDays };
+  const { channels = [], watchedVideos = {} } = await chrome.storage.local.get(["channels", "watchedVideos"]);
+  const opts = { watched: toWatchedMap(watchedVideos), hideShorts: s.hideShorts, maxAgeDays: s.maxAgeDays };
   const total = channels.reduce((n, c) => n + countUnwatched(c, opts), 0);
   await chrome.action.setBadgeBackgroundColor({ color: "#cc0000" });
   await chrome.action.setBadgeText({ text: total === 0 ? "" : total > 999 ? "999+" : String(total) });
@@ -164,12 +164,12 @@ async function runChannelUpdate() {
         const results = new Map(pending);
         pending.clear();
         // Re-read right before writing so edits made meanwhile are preserved
-        const { channels = [], watchedVideos = [], laterVideos = [] } = await chrome.storage.local.get([
+        const { channels = [], watchedVideos = {}, laterVideos = [] } = await chrome.storage.local.get([
           "channels",
           "watchedVideos",
           "laterVideos",
         ]);
-        const watched = new Set(watchedVideos);
+        const watched = toWatchedMap(watchedVideos);
         const later = new Set(laterVideos);
         for (const ch of channels) {
           const r = results.get(ch.id);
@@ -211,12 +211,12 @@ const DETAILS_PREFETCH_MAX = 120;
 
 async function prefetchDetails() {
   const s = await loadSettings();
-  const { channels = [], watchedVideos = [] } = await chrome.storage.local.get(["channels", "watchedVideos"]);
-  const watched = new Set(watchedVideos);
+  const { channels = [], watchedVideos = {} } = await chrome.storage.local.get(["channels", "watchedVideos"]);
+  const watched = toWatchedMap(watchedVideos);
   const now = Date.now();
   const targets = channels
     .flatMap((c) => c.videos || [])
-    .filter((v) => !watched.has(v.id) && isWithinAge(v, s.maxAgeDays, now) && needsDetails(v, now))
+    .filter((v) => (!watched.has(v.id) || v.live || v.upcoming) && isWithinAge(v, s.maxAgeDays, now) && needsDetails(v, now))
     .sort((a, b) => videoTime(b) - videoTime(a))
     .slice(0, DETAILS_PREFETCH_MAX)
     .map((v) => v.id);

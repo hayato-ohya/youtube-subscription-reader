@@ -176,6 +176,11 @@ function formatDuration(sec) {
 
 // Apply a fetch result to a channel object in place
 function applyFeedResult(channel, result, isWatched, isLater) {
+  // A feed that suddenly lists nothing is almost always a glitch on YouTube's side; merging
+  // it would drop every watched video from the channel (B1).
+  if (!result.error && !result.videos.length && (channel.videos || []).length) {
+    result = { error: "Empty feed" };
+  }
   if (result.error) {
     channel.error = result.error;
     return;
@@ -209,11 +214,27 @@ function countUnwatched(channel, opts) {
   return n;
 }
 
-// Drop watched ids that no longer belong to any stored video, so the list stays small
-function pruneWatched(watchedIds, channels) {
+// ===== Watched state =====
+// Stored as { videoId: time marked watched }. A watched id is kept for a long while after
+// its video leaves storage: YouTube sometimes serves an older copy of a feed, and a video
+// that comes back must not turn up as new again (B1). Older stores kept a plain array.
+const WATCHED_RETENTION_MS = 180 * 86400000;
+
+function toWatchedMap(raw) {
+  if (Array.isArray(raw)) {
+    const now = Date.now();
+    return new Map(raw.map((id) => [id, now]));
+  }
+  return new Map(Object.entries(raw || {}));
+}
+
+function pruneWatched(watchedMap, channels, now = Date.now()) {
   const present = new Set();
   channels.forEach((c) => (c.videos || []).forEach((v) => present.add(v.id)));
-  return watchedIds.filter((id) => present.has(id));
+  for (const [id, at] of watchedMap) {
+    if (!present.has(id) && now - at > WATCHED_RETENTION_MS) watchedMap.delete(id);
+  }
+  return watchedMap;
 }
 
 const DEFAULT_SETTINGS = {

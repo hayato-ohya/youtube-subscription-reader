@@ -85,6 +85,7 @@ const translations = {
     syncNotLoggedIn: "YouTubeにログインしていません。このブラウザでYouTubeにログインしてから、もう一度お試しください。",
     syncError: "登録チャンネルの読み込みに失敗しました: ",
     syncRemoveConfirm: "YouTubeで登録が解除された ${n} チャンネルを削除しますか？\n\n${names}",
+    syncRemoveSuspicious: "⚠ 同期した ${total} チャンネルのうち ${n} チャンネルが見つかりませんでした。\n\n一度にこれほど多く登録解除した覚えがない場合は、YouTube の仕様変更などで登録チャンネルの一部しか読み込めなかった可能性があります。その場合は「キャンセル」を押してください（何も削除されません）。\n\n本当に削除しますか？\n\n${names}",
     refreshing: "更新中 ${done}/${total}",
     lastUpdated: "最終更新: ${time}",
     neverUpdated: "未更新",
@@ -206,6 +207,7 @@ const translations = {
     syncNotLoggedIn: "You are not signed in to YouTube. Sign in to YouTube in this browser and try again.",
     syncError: "Failed to load subscriptions: ",
     syncRemoveConfirm: "Remove the ${n} channel(s) you unsubscribed from on YouTube?\n\n${names}",
+    syncRemoveSuspicious: "⚠ ${n} of ${total} synced channels were not found.\n\nIf you don't remember unsubscribing from that many, the list was probably only partly read (for example because YouTube changed its page). In that case press Cancel and nothing will be removed.\n\nRemove them anyway?\n\n${names}",
     refreshing: "Refreshing ${done}/${total}",
     lastUpdated: "Updated ${time}",
     neverUpdated: "Not updated yet",
@@ -258,7 +260,7 @@ function esc(s) {
 let settings = { ...DEFAULT_SETTINGS };
 let channels = []; // { id, title, thumbnail, folderId, source, videos, error, lastUpdated }
 let folders = []; // { id, name, collapsed }
-let watched = new Set(); // video ids
+let watched = new Map(); // video id -> when it was marked watched
 let later = new Set(); // video ids
 let selection = { type: "all" }; // all | later | folder {id} | channel {id}
 let searchQuery = "";
@@ -315,14 +317,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       const incoming = changes.channels.newValue || [];
       if (JSON.stringify(incoming) !== lastSavedChannelsJson) {
         channels = incoming;
-        renderAll();
+        renderAll({ keepPosition: true });
       }
     }
     if (changes.watchedVideos) {
       let added = false;
-      for (const id of changes.watchedVideos.newValue || []) {
+      for (const [id, at] of toWatchedMap(changes.watchedVideos.newValue)) {
         if (!watched.has(id)) {
-          watched.add(id);
+          watched.set(id, at);
           added = true;
         }
       }
@@ -347,7 +349,7 @@ async function loadState() {
   settings = await loadSettings();
   channels = data.channels || [];
   folders = data.folders || [];
-  watched = new Set(data.watchedVideos || []);
+  watched = toWatchedMap(data.watchedVideos);
   later = new Set(data.laterVideos || []);
   lastRefreshAt = data.lastRefreshAt || 0;
   applySettings();
@@ -371,8 +373,8 @@ let watchedSaveTimer = null;
 function saveWatchedSoon() {
   clearTimeout(watchedSaveTimer);
   watchedSaveTimer = setTimeout(() => {
-    watched = new Set(pruneWatched([...watched], channels));
-    chrome.storage.local.set({ watchedVideos: [...watched] });
+    pruneWatched(watched, channels);
+    chrome.storage.local.set({ watchedVideos: Object.fromEntries(watched) });
   }, 300);
 }
 
@@ -510,9 +512,9 @@ function bindEvents() {
 }
 
 // ===== Rendering =====
-function renderAll() {
+function renderAll(opts) {
   renderSidebar();
-  renderVideos();
+  renderVideos(opts);
 }
 
 function countOpts() {
@@ -533,7 +535,7 @@ function renderSidebar() {
   channelListEl.innerHTML = "";
   navListEl.append(
     navItem("▶", t("allVideos"), total, isSel("all"), () => select({ type: "all" })),
-    navItem("🕒", t("watchLater"), later.size, isSel("later"), () => select({ type: "later" })),
+    navItem("🕒", t("watchLater"), laterCount(), isSel("later"), () => select({ type: "later" })),
     // Its count is the number of subscribed channels
     navItem("📊", t("channelStats"), channels.length, isSel("stats"), () => select({ type: "stats" }))
   );
@@ -710,7 +712,14 @@ function collectVideos() {
   return list.sort((a, b) => videoTime(b.v) - videoTime(a.v));
 }
 
-function renderVideos() {
+// Re-render the list. With keepPosition (used after refreshes, which can add videos above
+// the one being read), the pages already loaded stay loaded and the video at the top of
+// the view stays where it was (B4). At the very top nothing is anchored, so new videos
+// show up in view.
+function renderVideos({ keepPosition = false } = {}) {
+  const anchor = keepPosition ? findTopVideo() : null;
+  const keptLimit = renderLimit;
+  const keptScroll = videoListEl.scrollTop;
   $("view-title").textContent = selectionTitle();
   renderChannelBar();
   const isStats = selection.type === "stats";
@@ -741,7 +750,23 @@ function renderVideos() {
   const container = document.createElement("div");
   container.id = "video-container";
   videoListEl.appendChild(container);
+  if (keepPosition && keptLimit > renderLimit) renderLimit = keptLimit;
   appendVideos(0, renderLimit);
+  if (!keepPosition) return;
+  const el = anchor && videoListEl.querySelector(`.video[data-id="${CSS.escape(anchor.id)}"]`);
+  if (el) setScrollTop(videoListEl.scrollTop + (el.getBoundingClientRect().top - anchor.top));
+  else setScrollTop(keptScroll);
+}
+
+// The first video whose bottom edge is inside the view, with its current position
+function findTopVideo() {
+  if (videoListEl.scrollTop <= 0) return null;
+  const rootTop = videoListEl.getBoundingClientRect().top;
+  for (const el of videoListEl.querySelectorAll(".video")) {
+    const r = el.getBoundingClientRect();
+    if (r.bottom > rootTop) return { id: el.dataset.id, top: r.top };
+  }
+  return null;
 }
 
 function appendVideos(from, to) {
@@ -1010,7 +1035,7 @@ function pumpDetails() {
 // ===== Watched / Watch later =====
 function setWatched(id, value) {
   if (value === watched.has(id)) return;
-  if (value) watched.add(id);
+  if (value) watched.set(id, Date.now());
   else watched.delete(id);
   keepVisible.add(id);
   const el = videoListEl.querySelector(`.video[data-id="${CSS.escape(id)}"]`);
@@ -1036,7 +1061,7 @@ function markAllShownWatched() {
   const ids = currentList.map(({ v }) => v.id).filter((id) => !watched.has(id));
   if (!ids.length) return;
   if (!confirm(t("markAllConfirm", { n: ids.length }))) return;
-  ids.forEach((id) => watched.add(id));
+  ids.forEach((id) => watched.set(id, Date.now()));
   saveWatchedSoon();
   keepVisible = new Set();
   renderAll();
@@ -1067,6 +1092,9 @@ function observeForScrollMark() {
         if (e.boundingClientRect.bottom > e.rootBounds.top) continue; // below, not above
         // Videos can also move above the view without scrolling (resize, reflow)
         if (performance.now() - lastUserScrollAt > USER_SCROLL_WINDOW_MS) continue;
+        // Scrolling past a premiere or a live stream must not hide it before it airs (B2)
+        const item = currentList.find(({ v }) => v.id === e.target.dataset.id);
+        if (item && (item.v.live || item.v.upcoming)) continue;
         setWatched(e.target.dataset.id, true);
         scrollObserver?.unobserve(e.target);
       }
@@ -1080,11 +1108,27 @@ function observeForScrollMark() {
 }
 
 // ===== Refresh =====
+// Requests that arrive while a refresh runs are queued and run right after it, so channels
+// added by a sync or an import during a refresh are not left empty (B3).
+let refreshRunIds = null; // ids the running refresh covers
+let pendingRefresh = null; // null | "all" | Set of ids
+
 async function refreshAll(onlyIds) {
-  if (refreshing) return;
-  const ids = Array.isArray(onlyIds) ? onlyIds : channels.map((c) => c.id);
+  const full = !Array.isArray(onlyIds);
+  if (refreshing) {
+    if (full) {
+      // A running full refresh already covers everything that existed when it started
+      if (!refreshRunIds.full) pendingRefresh = "all";
+    } else if (pendingRefresh !== "all") {
+      const missing = onlyIds.filter((id) => !refreshRunIds.has(id));
+      if (missing.length) pendingRefresh = new Set([...(pendingRefresh || []), ...missing]);
+    }
+    return;
+  }
+  const ids = full ? channels.map((c) => c.id) : onlyIds;
   if (!ids.length) return;
   refreshing = true;
+  refreshRunIds = Object.assign(new Set(ids), { full });
   refreshProgress = { done: 0, total: ids.length };
   renderStatus();
 
@@ -1113,16 +1157,18 @@ async function refreshAll(onlyIds) {
   } finally {
     clearTimeout(saveTimer);
     clearTimeout(sidebarTimer);
-    if (!Array.isArray(onlyIds)) {
+    if (full) {
       lastRefreshAt = Date.now();
-      await chrome.storage.local.set({ lastRefreshAt });
+      await chrome.storage.local.set({ lastRefreshAt }).catch(() => {});
     }
-    await saveChannels();
+    await saveChannels().catch((e) => console.warn("Failed to save channels", e));
     refreshing = false;
+    refreshRunIds = null;
     refreshProgress = null;
-    const top = videoListEl.scrollTop;
-    renderAll();
-    setScrollTop(top);
+    renderAll({ keepPosition: true });
+    const next = pendingRefresh;
+    pendingRefresh = null;
+    if (next) refreshAll(next === "all" ? undefined : [...next]);
   }
 }
 
@@ -1147,6 +1193,8 @@ async function syncSubscriptions() {
     return;
   }
 
+  // Only well-formed channel ids from the page are accepted
+  subs = subs.filter((s) => CHANNEL_ID_RE.test(s.id));
   const subIds = new Set(subs.map((s) => s.id));
   const added = [];
   for (const s of subs) {
@@ -1165,11 +1213,19 @@ async function syncSubscriptions() {
   let removed = 0;
   if (gone.length) {
     const names = gone.slice(0, 20).map((c) => "・" + (c.title || c.id)).join("\n") + (gone.length > 20 ? "\n…" : "");
-    if (confirm(t("syncRemoveConfirm", { n: gone.length, names }))) {
-      const goneIds = new Set(gone.map((c) => c.id));
-      channels = channels.filter((c) => !goneIds.has(c.id));
+    // Many channels vanishing at once more likely means the list was only partly read
+    // (e.g. YouTube changed its page) than that the user unsubscribed from them all (B9).
+    const synced = gone.length + channels.filter((c) => c.source === "youtube" && subIds.has(c.id)).length;
+    const suspicious = gone.length > 5 && gone.length > synced * 0.2;
+    const message = suspicious
+      ? t("syncRemoveSuspicious", { n: gone.length, total: synced, names })
+      : t("syncRemoveConfirm", { n: gone.length, names });
+    if (confirm(message)) {
+      removeChannels(gone.map((c) => c.id));
       removed = gone.length;
-      if (selection.type === "channel" && goneIds.has(selection.id)) selection = { type: "all" };
+    } else if (!suspicious) {
+      // The user chose to keep them: stop offering to remove them on every sync
+      gone.forEach((c) => (c.source = "manual"));
     }
   }
   await saveChannels();
@@ -1237,6 +1293,25 @@ async function addFolderFromModal() {
   closeModal("folder-modal");
   renderSidebar();
   renderChannelBar();
+}
+
+// Remove channels, together with their videos' "Watch later" entries (B6)
+function removeChannels(ids) {
+  const gone = new Set(ids);
+  const goneVideos = new Set();
+  channels.filter((c) => gone.has(c.id)).forEach((c) => (c.videos || []).forEach((v) => goneVideos.add(v.id)));
+  channels = channels.filter((c) => !gone.has(c.id));
+  if (selection.type === "channel" && gone.has(selection.id)) selection = { type: "all" };
+  const before = later.size;
+  goneVideos.forEach((id) => later.delete(id));
+  if (later.size !== before) saveLater();
+}
+
+// "Watch later" entries whose video is still stored (what the Watch later view can show)
+function laterCount() {
+  let n = 0;
+  for (const c of channels) for (const v of c.videos || []) if (later.has(v.id)) n++;
+  return n;
 }
 
 async function moveChannelToFolder(channelId, folderId) {
@@ -1349,15 +1424,14 @@ function channelActions(c) {
     open: () => chrome.tabs.create({ url: `https://www.youtube.com/channel/${c.id}/videos` }),
     refresh: () => refreshAll([c.id]),
     markAll: () => {
-      (c.videos || []).forEach((v) => watched.add(v.id));
+      (c.videos || []).forEach((v) => watched.set(v.id, Date.now()));
       saveWatchedSoon();
       renderAll();
     },
     unsubscribe: () => unsubscribeChannel(c),
     remove: async () => {
       if (!confirm(t("deleteChannelConfirm", { name: c.title || c.id }))) return;
-      channels = channels.filter((x) => x.id !== c.id);
-      if (selection.type === "channel" && selection.id === c.id) selection = { type: "all" };
+      removeChannels([c.id]);
       await saveChannels();
       renderAll();
     },
@@ -1440,8 +1514,7 @@ async function unsubscribeChannel(c) {
   } finally {
     unsubscribingIds.delete(c.id);
   }
-  channels = channels.filter((x) => x.id !== c.id);
-  if (selection.type === "channel" && selection.id === c.id) selection = { type: "all" };
+  removeChannels([c.id]);
   await saveChannels();
   renderAll();
   setTransientStatus(t("unsubscribeDone", { name }), 6000);

@@ -559,19 +559,10 @@ button:disabled {
   gap: 2px;
   align-items: flex-start;
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 0.15s;
 }
 
-.video:hover .actions,
-.actions .on {
-  opacity: 1;
-}
-
-.video:hover .actions {
-  opacity: 1;
-}
-
+/* The buttons appear on hover; a button that is "on" (in Watch later, watched) always
+   shows, so the state is visible without hovering */
 .actions button {
   background: none;
   border: none;
@@ -580,16 +571,21 @@ button:disabled {
   padding: 3px 6px;
   font-size: 14px;
   filter: grayscale(1);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.video:hover .actions button {
   opacity: 0.6;
 }
 
-.actions button:hover {
-  background: var(--border);
+.video .actions button.on {
+  filter: none;
   opacity: 1;
 }
 
-.actions button.on {
-  filter: none;
+.video .actions button:hover {
+  background: var(--border);
   opacity: 1;
 }
 
@@ -599,7 +595,7 @@ button:disabled {
   opacity: 0.45;
 }
 
-.video.watched .btn-watched {
+.video.watched .actions .btn-watched {
   filter: none;
   opacity: 1;
   color: #2e7d32;
