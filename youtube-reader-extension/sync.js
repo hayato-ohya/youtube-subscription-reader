@@ -2,8 +2,9 @@
 // and resolving a channel URL / handle to a channel id. Used by the reader page.
 //
 // There is no official API for this without OAuth setup, so a youtube.com tab is opened
-// in the background, yt-page.js is injected into it (MAIN world, so requests carry the
-// user's cookies and YouTube's own origin), one of its methods is called, and the tab is
+// in the background, yt-page.js is injected into it (in the extension's isolated world:
+// requests still carry the user's cookies and YouTube's own origin, but the page can't
+// tamper with the code or its results), one of its methods is called, and the tab is
 // closed.
 
 const YT_PAGE_URL = "https://www.youtube.com/feed/channels";
@@ -18,10 +19,10 @@ async function runInYouTubeTab(method, args = []) {
     if (!(loaded.url || "").startsWith("https://www.youtube.com/")) {
       throw Object.assign(new Error("notLoggedIn"), { code: "notLoggedIn" });
     }
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["yt-page.js"] });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "ISOLATED", files: ["yt-page.js"] });
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
-      world: "MAIN",
+      world: "ISOLATED",
       func: (m, a) => window.__ytReader[m](...a),
       args: [method, args],
     });

@@ -1,8 +1,11 @@
-// Injected into a temporary youtube.com tab (MAIN world) by sync.js. Requests made from
-// here carry the user's YouTube session, as YouTube's own scripts' requests do.
+// Injected into a temporary youtube.com tab by sync.js. It runs in the extension's
+// isolated world, not the page's: the page's own scripts (or other extensions injecting
+// into it) can neither see these functions nor fake what they return. Requests made from
+// here still have the page's origin and carry the user's YouTube session (cookies; the
+// SAPISID cookie for the auth header is readable through document.cookie as well).
 // Every method returns a plain object: a result, or { error: "notLoggedIn" | message }.
 
-window.__ytReader ||= (() => {
+window.__ytReader = (() => {
   // Cut a balanced {...} JSON object out of text starting at index `from`
   function sliceJson(text, from) {
     const start = text.indexOf("{", from);
