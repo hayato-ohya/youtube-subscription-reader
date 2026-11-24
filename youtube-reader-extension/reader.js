@@ -296,6 +296,8 @@ function channelById(id) {
 // ===== Init =====
 document.addEventListener("DOMContentLoaded", async () => {
   await loadState();
+  selection = selectionFromHash(location.hash); // a reload stays on the same view
+  history.replaceState({ sel: selection, scroll: 0 }, "", selectionHash(selection));
   updateActionIcon();
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", updateActionIcon);
   bindEvents();
@@ -622,15 +624,57 @@ function renderStatus() {
   $("btn-refresh").classList.toggle("spinning", refreshing);
 }
 
-function select(sel) {
+// Switch the view. Each switch is a browser history entry (the view is in the URL hash),
+// so back / forward move between views and a reload stays on the same one.
+function select(sel, { fromHistory = false, scrollTop = 0 } = {}) {
+  if (!fromHistory) {
+    // Remember where the current view was scrolled, for when the user comes back to it
+    history.replaceState({ sel: selection, scroll: videoListEl.scrollTop }, "", selectionHash(selection));
+    if (selectionHash(sel) !== selectionHash(selection)) history.pushState({ sel, scroll: 0 }, "", selectionHash(sel));
+  }
   selection = sel;
   tempShowWatched = false;
   keepVisible = new Set();
   applySettings();
   renderSidebar();
   renderVideos();
-  setScrollTop(0);
+  restoreScroll(scrollTop);
 }
+
+function selectionHash(sel) {
+  if (sel.type === "channel" || sel.type === "folder") return `#${sel.type}/${encodeURIComponent(sel.id)}`;
+  return `#${sel.type}`;
+}
+
+// A selection from a URL hash or a history entry, or "all" if what it names is gone
+function validSelection(sel) {
+  if (!sel || typeof sel !== "object") return { type: "all" };
+  if (["all", "later", "stats"].includes(sel.type)) return { type: sel.type };
+  if (sel.type === "channel" && channelById(sel.id)) return { type: "channel", id: sel.id };
+  if (sel.type === "folder" && folders.some((f) => f.id === sel.id)) return { type: "folder", id: sel.id };
+  return { type: "all" };
+}
+
+function selectionFromHash(hash) {
+  const m = (hash || "").match(/^#(\w+)(?:\/(.*))?$/);
+  if (!m) return { type: "all" };
+  return validSelection({ type: m[1], id: m[2] ? decodeURIComponent(m[2]) : undefined });
+}
+
+// Scroll the list back to where it was; load further pages if the spot is beyond them
+function restoreScroll(top) {
+  for (let i = 0; i < 50 && top > videoListEl.scrollHeight - videoListEl.clientHeight && $("load-more"); i++) {
+    $("load-more").click();
+  }
+  setScrollTop(top);
+}
+
+window.addEventListener("popstate", (e) => {
+  const sel = validSelection(e.state?.sel || selectionFromHash(location.hash));
+  // Correct the URL when it named something that no longer exists
+  if (selectionHash(sel) !== location.hash) history.replaceState({ sel, scroll: 0 }, "", selectionHash(sel));
+  select(sel, { fromHistory: true, scrollTop: e.state?.scroll || 0 });
+});
 
 function selectionTitle() {
   if (selection.type === "later") return t("watchLater");
