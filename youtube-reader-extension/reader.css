@@ -172,13 +172,26 @@ button:disabled {
   cursor: progress !important;
 }
 
-#channel-list {
+.side-list {
   list-style: none;
-  overflow-y: auto;
-  flex: 1;
 }
 
-#channel-list li {
+#nav-list {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+#nav-list li:last-child {
+  border-bottom: none;
+}
+
+#channel-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.side-list li {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -188,20 +201,20 @@ button:disabled {
   transition: background 0.15s;
 }
 
-#channel-list li:hover {
+.side-list li:hover {
   background: var(--hover);
 }
 
-#channel-list li.active {
+.side-list li.active {
   background: var(--active);
   font-weight: 600;
 }
 
-#channel-list li.in-folder {
+.side-list li.in-folder {
   padding-left: 30px;
 }
 
-#channel-list li.drag-over {
+.side-list li.drag-over {
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }

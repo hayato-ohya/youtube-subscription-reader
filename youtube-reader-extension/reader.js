@@ -284,6 +284,7 @@ function setScrollTop(top) {
 }
 
 const $ = (id) => document.getElementById(id);
+const navListEl = $("nav-list");
 const channelListEl = $("channel-list");
 const videoListEl = $("video-list");
 const statusBarEl = $("status-bar");
@@ -526,8 +527,9 @@ function renderSidebar() {
   const total = [...counts.values()].reduce((a, b) => a + b, 0);
   const isSel = (type, id) => selection.type === type && (id === undefined || selection.id === id);
 
+  navListEl.innerHTML = "";
   channelListEl.innerHTML = "";
-  channelListEl.append(
+  navListEl.append(
     navItem("▶", t("allVideos"), total, isSel("all"), () => select({ type: "all" })),
     navItem("🕒", t("watchLater"), later.size, isSel("later"), () => select({ type: "later" })),
     // Its count is the number of subscribed channels
