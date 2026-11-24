@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube登録チャンネルリーダー",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "description": "YouTubeの登録チャンネルの新着動画をRSSで確認するリーダー",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "scripting",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "host_permissions": [
+    "https://www.youtube.com/*"
+  ],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "YouTube登録チャンネルリーダー"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

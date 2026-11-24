@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>YouTube登録チャンネルリーダー</title>
+  <link rel="icon" id="favicon" href="icons/icon48.png">
+  <link rel="stylesheet" href="reader.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Left Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <h1 data-i18n="appShortTitle"></h1>
+        <div id="sidebar-actions">
+          <button id="btn-add-folder" data-i18n-title="addFolder">📁</button>
+          <button id="btn-refresh" data-i18n-title="refresh">⟳</button>
+          <button id="btn-settings" data-i18n-title="settings">⚙</button>
+        </div>
+      </div>
+      <div id="sidebar-buttons">
+        <button id="btn-sync" class="primary" data-i18n="syncSubscriptions"></button>
+        <button id="btn-add-channel" data-i18n="addChannel"></button>
+        <input type="text" id="channel-filter" data-i18n-placeholder="filterChannels">
+      </div>
+      <ul id="channel-list"></ul>
+      <div id="status-bar"></div>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="content">
+      <div id="content-header">
+        <div id="view-title"></div>
+        <div id="content-actions">
+          <div id="search-box">
+            <input type="text" id="search-input" data-i18n-placeholder="search">
+          </div>
+          <button id="btn-toggle-shorts" class="view-btn" data-i18n-title="hideShorts">Shorts</button>
+          <button id="btn-toggle-watched" class="view-btn" data-i18n-title="showWatched">👁</button>
+          <button id="btn-mark-all" class="view-btn" data-i18n-title="markAllWatched">✓</button>
+          <button id="btn-view-list" class="view-btn" data-i18n-title="listView">☰</button>
+          <button id="btn-view-card" class="view-btn" data-i18n-title="cardView">⊞</button>
+        </div>
+      </div>
+      <div id="channel-bar" class="hidden"></div>
+      <div id="video-list"></div>
+    </main>
+  </div>
+
+  <!-- Add Channel Modal -->
+  <div id="channel-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 data-i18n="addChannel"></h2>
+      <div class="modal-field">
+        <label for="channel-input" data-i18n="channelInputLabel"></label>
+        <input type="text" id="channel-input" placeholder="https://www.youtube.com/@handle">
+        <div class="hint" data-i18n="channelInputHint"></div>
+      </div>
+      <div class="modal-error hidden"></div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" data-i18n="cancel"></button>
+        <button class="btn-ok primary" data-i18n="add"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Folder Modal -->
+  <div id="folder-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h2 data-i18n="addFolder"></h2>
+      <div class="modal-field">
+        <label for="folder-input" data-i18n="folderName"></label>
+        <input type="text" id="folder-input">
+      </div>
+      <div class="modal-error hidden"></div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" data-i18n="cancel"></button>
+        <button class="btn-ok primary" data-i18n="add"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal settings">
+      <h2 data-i18n="settings"></h2>
+      <div class="settings-grid">
+        <label data-i18n="language"></label>
+        <select data-setting="language">
+          <option value="ja">日本語</option>
+          <option value="en">English</option>
+        </select>
+
+        <label data-i18n="darkMode"></label>
+        <input type="checkbox" data-setting="darkMode">
+
+        <label data-i18n="hideWatched"></label>
+        <input type="checkbox" data-setting="hideWatched">
+
+        <label data-i18n="hideShorts"></label>
+        <input type="checkbox" data-setting="hideShorts">
+
+        <label data-i18n="autoplayOnYouTube"></label>
+        <input type="checkbox" data-setting="autoplayOnYouTube">
+
+        <label data-i18n="markWatchedOnOpen"></label>
+        <input type="checkbox" data-setting="markWatchedOnOpen">
+
+        <label data-i18n="markWatchedOnScroll"></label>
+        <input type="checkbox" data-setting="markWatchedOnScroll">
+
+        <label data-i18n="maxAge"></label>
+        <select data-setting="maxAgeDays" data-number>
+          <option value="7" data-i18n-days="7"></option>
+          <option value="14" data-i18n-days="14"></option>
+          <option value="30" data-i18n-days="30"></option>
+          <option value="90" data-i18n-days="90"></option>
+          <option value="0" data-i18n="unlimited"></option>
+        </select>
+
+        <label data-i18n="autoRefresh"></label>
+        <select data-setting="autoRefreshMinutes" data-number>
+          <option value="0" data-i18n="off"></option>
+          <option value="15" data-i18n-minutes="15"></option>
+          <option value="30" data-i18n-minutes="30"></option>
+          <option value="60" data-i18n-minutes="60"></option>
+          <option value="180" data-i18n-minutes="180"></option>
+        </select>
+
+        <label data-i18n="backgroundRefresh"></label>
+        <input type="checkbox" data-setting="backgroundRefresh">
+
+        <label data-i18n="showBadge"></label>
+        <input type="checkbox" data-setting="showBadge">
+      </div>
+      <div class="settings-section">
+        <button id="btn-import" data-i18n="importFile"></button>
+        <button id="btn-export" data-i18n="exportOpml"></button>
+        <div class="hint" data-i18n="importHint"></div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel primary" data-i18n="close"></button>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="import-file-input" accept=".opml,.xml,.csv" style="display:none">
+
+  <script src="shared.js"></script>
+  <script src="sync.js"></script>
+  <script src="reader.js"></script>
+</body>
+</html>
