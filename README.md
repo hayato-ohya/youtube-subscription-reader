@@ -30,6 +30,7 @@ YouTube の登録チャンネルの新着動画を、RSS リーダーのよう�
 - チャンネル名の絞り込み
 - Google テイクアウトの `subscriptions.csv`、OPML のインポート
 - OPML エクスポート（`simple-rss-reader` など一般的な RSS リーダーで読み込めます）
+- 完全バックアップ: チャンネル・動画・フォルダ・視聴済み・後で見る・設定を JSON ファイルに書き出し、そこから復元（復元は今のデータを置き換え）
 
 #### チャンネル統計
 - サイドバーの「📊 チャンネル統計」の数字が登録チャンネル数
@@ -52,6 +53,9 @@ YouTube の登録チャンネルの新着動画を、RSS リーダーのよう�
 - スクロールで画面上部から消えた動画を視聴済みにする（デフォルトで有効。最後の動画までスクロールできるよう、一覧の下に余白を表示）
 - 「後で見る」リスト
 - 新着として扱う期間の設定（7日 / 14日 / 30日 / 90日 / 無制限）
+
+#### キーボード操作
+- j / k で動画を選択、o / Enter で開く（Shift+O でバックグラウンド）、m で視聴済みの切り替え、l で後で見る、/ で検索、r で更新、? でショートカット一覧
 
 #### 自動更新
 - 自動更新間隔の設定（オフ / 15分 / 30分 / 60分 / 180分、デフォルト 30分）
@@ -101,6 +105,7 @@ Videos are fetched from YouTube's official per-channel RSS feeds (`/feeds/videos
 - Filter the channel list by name
 - Import Google Takeout `subscriptions.csv` or OPML
 - Export OPML (readable by `simple-rss-reader` and other RSS readers)
+- Full backup: export channels, videos, folders, watched state, Watch later and settings to a JSON file, and restore from it (restoring replaces the current data)
 
 #### Channel Stats
 - The number next to "📊 Channel Stats" in the sidebar is your subscription count
@@ -123,6 +128,9 @@ Videos are fetched from YouTube's official per-channel RSS feeds (`/feeds/videos
 - Videos that scroll out of the top of the view are marked as watched (on by default; blank space below the list lets the last videos scroll out too)
 - "Watch Later" list
 - Configurable "new" window (7 / 14 / 30 / 90 days / unlimited)
+
+#### Keyboard
+- j / k select videos, o / Enter open (Shift+O in the background), m toggles watched, l Watch later, / search, r refresh, ? shows the list of shortcuts
 
 #### Auto-refresh
 - Configurable interval (Off / 15 / 30 / 60 / 180 min, default 30 min)

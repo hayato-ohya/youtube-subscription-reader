@@ -120,6 +120,21 @@ const translations = {
     importError: "インポートに失敗しました: ",
     opmlTitle: "YouTube登録チャンネル",
     fetchError: "取得エラー: ",
+    shortcuts: "キーボードショートカット",
+    keyNextPrev: "次 / 前の動画を選択",
+    keyOpen: "選択中の動画を YouTube で開く",
+    keyOpenBackground: "選択中の動画をバックグラウンドのタブで開く",
+    keyWatched: "視聴済み / 未視聴を切り替え",
+    keyLater: "後で見るに追加 / 外す",
+    keySearch: "動画を検索",
+    keyRefresh: "すべてのチャンネルを更新",
+    keyHelp: "このショートカット一覧を表示",
+    keyEscape: "ダイアログを閉じる / 検索欄から抜ける",
+    backupExport: "バックアップを書き出す (JSON)",
+    backupRestore: "バックアップから復元",
+    backupHint: "チャンネル・動画・フォルダ・視聴済み・後で見る・設定をすべて1つのファイルに保存します。復元すると今のデータは置き換えられます。",
+    restoreConfirm: "バックアップ（${date} 作成、${channels} チャンネル）から復元しますか？\n\n今のチャンネル・フォルダ・視聴済み・後で見る・設定はすべて置き換えられます。",
+    restoreInvalid: "このファイルはこの拡張機能のバックアップではないか、内容が壊れています。",
     errNotLoggedIn: "YouTubeにログインしていません",
     errEmptyFeed: "フィードが空でした（一時的な不具合の可能性があります）",
     errNotFeed: "YouTubeのフィードではない応答が返されました",
@@ -255,6 +270,21 @@ const translations = {
     importError: "Import failed: ",
     opmlTitle: "YouTube Subscriptions",
     fetchError: "Fetch error: ",
+    shortcuts: "Keyboard shortcuts",
+    keyNextPrev: "Select next / previous video",
+    keyOpen: "Open the selected video on YouTube",
+    keyOpenBackground: "Open the selected video in a background tab",
+    keyWatched: "Toggle watched",
+    keyLater: "Add to / remove from Watch later",
+    keySearch: "Search videos",
+    keyRefresh: "Refresh all channels",
+    keyHelp: "Show this list",
+    keyEscape: "Close a dialog / leave the search box",
+    backupExport: "Export backup (JSON)",
+    backupRestore: "Restore from backup",
+    backupHint: "Saves channels, videos, folders, watched state, Watch later and settings in one file. Restoring replaces the current data.",
+    restoreConfirm: "Restore from the backup made on ${date} (${channels} channels)?\n\nYour current channels, folders, watched state, Watch later and settings will all be replaced.",
+    restoreInvalid: "This file is not a backup from this extension, or it is damaged.",
     errNotLoggedIn: "Not signed in to YouTube",
     errEmptyFeed: "The feed was empty (possibly a temporary glitch)",
     errNotFeed: "The response was not a YouTube feed",
@@ -509,6 +539,7 @@ function bindEvents() {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    if (document.activeElement?.matches?.("#search-input, #channel-filter")) document.activeElement.blur();
     closeContextMenu();
     document.querySelectorAll(".modal-overlay:not(.hidden)").forEach((o) => closeModal(o.id));
   });
@@ -524,6 +555,14 @@ function bindEvents() {
   $("btn-import").addEventListener("click", () => $("import-file-input").click());
   $("import-file-input").addEventListener("change", handleImport);
   $("btn-export").addEventListener("click", exportOpml);
+  $("btn-backup").addEventListener("click", exportBackup);
+  $("btn-restore").addEventListener("click", () => $("backup-file-input").click());
+  $("backup-file-input").addEventListener("change", handleRestore);
+  $("btn-shortcuts").addEventListener("click", () => {
+    closeModal("settings-modal");
+    $("help-modal").classList.remove("hidden");
+  });
+  document.addEventListener("keydown", handleShortcut);
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".context-menu")) closeContextMenu();
@@ -664,6 +703,7 @@ function select(sel, { fromHistory = false, scrollTop = 0 } = {}) {
   selection = sel;
   tempShowWatched = false;
   keepVisible = new Set();
+  cursorId = null;
   applySettings();
   renderSidebar();
   renderVideos();
@@ -832,7 +872,7 @@ function appendVideos(from, to) {
 
 function videoElement(v, c) {
   const el = document.createElement("div");
-  el.className = "video" + (watched.has(v.id) ? " watched" : "");
+  el.className = "video" + (watched.has(v.id) ? " watched" : "") + (v.id === cursorId ? " cursor" : "");
   el.dataset.id = v.id;
   const meta = [relativeTime(videoTime(v))];
   if (v.views != null) meta.push(t("views", { n: formatCount(v.views) }));
@@ -1674,6 +1714,176 @@ function exportOpml() {
   a.download = "youtube-subscriptions.opml";
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ===== Keyboard shortcuts =====
+// j / k select the next / previous video (the selection is outlined and kept in view);
+// the other keys act on the selected video. Keys are ignored while typing in a field,
+// while a dialog is open, and with Ctrl / Cmd / Alt (those belong to the browser).
+let cursorId = null;
+
+function cursorElement() {
+  return cursorId ? videoListEl.querySelector(`.video[data-id="${CSS.escape(cursorId)}"]`) : null;
+}
+
+function setCursor(el) {
+  videoListEl.querySelector(".video.cursor")?.classList.remove("cursor");
+  cursorId = el ? el.dataset.id : null;
+  if (!el) return;
+  el.classList.add("cursor");
+  el.scrollIntoView({ block: "nearest" });
+}
+
+function moveCursor(delta) {
+  let els = [...videoListEl.querySelectorAll(".video")];
+  if (!els.length) return;
+  const i = els.indexOf(cursorElement());
+  if (i < 0) {
+    // Nothing selected yet: start from the first video in view
+    const top = videoListEl.getBoundingClientRect().top;
+    setCursor(els.find((el) => el.getBoundingClientRect().bottom > top) || els[0]);
+    return;
+  }
+  if (i + delta >= els.length && $("load-more")) {
+    $("load-more").click(); // load the next page and keep going
+    els = [...videoListEl.querySelectorAll(".video")];
+  }
+  setCursor(els[Math.max(0, Math.min(els.length - 1, i + delta))]);
+}
+
+function handleShortcut(e) {
+  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+  if (e.target.closest?.("input, select, textarea, [contenteditable]")) return;
+  if (document.querySelector(".modal-overlay:not(.hidden)")) return;
+  const key = e.key;
+  const item = cursorId ? currentList.find(({ v }) => v.id === cursorId) : null;
+  const run = (fn) => {
+    e.preventDefault();
+    fn();
+  };
+  if (key === "j") return run(() => moveCursor(1));
+  if (key === "k") return run(() => moveCursor(-1));
+  if (key === "/") return run(() => $("search-input").focus());
+  if (key === "r") return run(() => refreshAll());
+  if (key === "?") return run(() => $("help-modal").classList.remove("hidden"));
+  if (!item) return;
+  if (key === "o" || key === "O" || key === "Enter") {
+    return run(() => {
+      openVideoTab(item.v.link, e.shiftKey);
+      if (settings.markWatchedOnOpen) setWatched(item.v.id, true);
+    });
+  }
+  if (key === "m") return run(() => setWatched(item.v.id, !watched.has(item.v.id)));
+  if (key === "l") {
+    return run(() => {
+      const btn = cursorElement()?.querySelector(".btn-later");
+      if (btn) toggleLater(item.v.id, btn);
+    });
+  }
+}
+
+// ===== Full backup =====
+// Everything in one JSON file: channels (with their videos), folders, watched state,
+// Watch later and settings. Restoring replaces the current data. A backup file is
+// untrusted input, so it is checked and cleaned: bad channel ids are dropped, links must
+// point at YouTube, avatars must be https, and only known settings are taken.
+const BACKUP_APP = "youtube-subscription-reader";
+
+function exportBackup() {
+  const backup = {
+    app: BACKUP_APP,
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    channels,
+    folders,
+    watchedVideos: Object.fromEntries(watched),
+    laterVideos: [...later],
+    settings,
+  };
+  const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `youtube-reader-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function sanitizeBackup(raw) {
+  if (!raw || raw.app !== BACKUP_APP || !Array.isArray(raw.channels)) throw new Error("invalid");
+  const str = (x) => (typeof x === "string" ? x : "");
+  const num = (x) => (typeof x === "number" && isFinite(x) ? x : null);
+  const httpsUrl = (x) => (typeof x === "string" && /^https:\/\//.test(x) ? x : "");
+  const ytLink = (x, id) => (typeof x === "string" && x.startsWith("https://www.youtube.com/") ? x : `https://www.youtube.com/watch?v=${id}`);
+
+  const folders = (Array.isArray(raw.folders) ? raw.folders : [])
+    .filter((f) => f && typeof f.id === "string" && typeof f.name === "string")
+    .map((f) => ({ id: f.id, name: f.name, collapsed: !!f.collapsed }));
+  const folderIds = new Set(folders.map((f) => f.id));
+
+  const seen = new Set();
+  const channels = raw.channels
+    .filter((c) => c && CHANNEL_ID_RE.test(c.id) && !seen.has(c.id) && seen.add(c.id))
+    .map((c) => {
+      const ch = {
+        id: c.id,
+        title: str(c.title),
+        thumbnail: httpsUrl(c.thumbnail),
+        source: c.source === "youtube" ? "youtube" : "manual",
+        folderId: folderIds.has(c.folderId) ? c.folderId : null,
+        videos: (Array.isArray(c.videos) ? c.videos : [])
+          .filter((v) => v && /^[\w-]{11}$/.test(v.id))
+          .map((v) => {
+            const out = {
+              id: v.id,
+              title: str(v.title),
+              link: ytLink(v.link, v.id),
+              published: num(v.published),
+              isShort: !!v.isShort,
+              views: num(v.views),
+              firstSeen: num(v.firstSeen) || Date.now(),
+            };
+            if (num(v.duration) !== null) out.duration = v.duration;
+            if (v.live) out.live = true;
+            if (v.upcoming) out.upcoming = true;
+            if (num(v.detailsAt) !== null) out.detailsAt = v.detailsAt;
+            return out;
+          }),
+      };
+      if (num(c.lastUpdated) !== null) ch.lastUpdated = c.lastUpdated;
+      return ch;
+    });
+
+  const watchedVideos = {};
+  for (const [id, at] of toWatchedMap(raw.watchedVideos)) {
+    if (typeof id === "string" && id.length <= 64) watchedVideos[id] = num(at) || Date.now();
+  }
+  const laterVideos = (Array.isArray(raw.laterVideos) ? raw.laterVideos : []).filter((id) => typeof id === "string" && id.length <= 64);
+
+  const s = {};
+  for (const [k, def] of Object.entries(DEFAULT_SETTINGS)) {
+    if (raw.settings && typeof raw.settings[k] === typeof def) s[k] = raw.settings[k];
+  }
+  s.version = 2;
+  return { channels, folders, watchedVideos, laterVideos, settings: s, exportedAt: str(raw.exportedAt) };
+}
+
+async function handleRestore(e) {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  let data;
+  try {
+    data = sanitizeBackup(JSON.parse(await file.text()));
+  } catch {
+    alert(t("restoreInvalid"));
+    return;
+  }
+  const date = data.exportedAt ? new Date(data.exportedAt).toLocaleString(settings.language === "ja" ? "ja-JP" : "en-US") : "?";
+  if (!confirm(t("restoreConfirm", { date, channels: data.channels.length }))) return;
+  const { exportedAt, ...store } = data;
+  // lastRefreshAt 0: the reader refreshes everything once it has reloaded
+  await chrome.storage.local.set({ ...store, lastRefreshAt: 0 });
+  location.reload();
 }
 
 // ===== Error messages =====

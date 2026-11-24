@@ -636,6 +636,41 @@ button:disabled {
   flex-direction: column;
 }
 
+/* ===== Keyboard cursor / shortcuts ===== */
+.video.cursor {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.shortcut-table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.shortcut-table td:first-child {
+  white-space: nowrap;
+  width: 40%;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--panel);
+  font-family: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+
 /* ===== Channel stats ===== */
 .stats {
   max-width: 1100px;
