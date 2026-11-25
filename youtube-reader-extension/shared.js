@@ -122,9 +122,68 @@ function mergeVideos(existing, incoming, isWatched, isLater) {
 // It rejects requests that carry an extension's Origin header, so background.js
 // registers a rule that drops that header from this extension's requests to it.
 const PLAYER_URL = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
-const PLAYER_CLIENT_VERSION = "2.20251120.01.00";
 const DETAILS_CONCURRENCY = 4;
 const DETAIL_KEYS = ["duration", "live", "upcoming", "detailsAt", "detailsFailedAt"];
+
+// The player endpoint wants a current web client version and stops answering requests
+// that name one that is too old. The version is read from YouTube's own pages (on a sync,
+// or from the home page once it is a week old) and kept in storage; the constant is only
+// a last resort for when none could be read.
+const FALLBACK_CLIENT_VERSION = "2.20251120.01.00";
+const CLIENT_VERSION_MAX_AGE_MS = 7 * 86400000;
+const CLIENT_VERSION_RE = /^\d+\.\d{8}\.\d+\.\d+$/;
+let clientVersionPromise = null;
+let clientVersionLookedUpAt = 0;
+let clientVersionForced = false;
+
+async function saveClientVersion(version) {
+  if (!CLIENT_VERSION_RE.test(version || "")) return;
+  clientVersionPromise = Promise.resolve(version);
+  clientVersionLookedUpAt = Date.now();
+  await chrome.storage.local.set({ ytClientVersion: { version, at: Date.now() } });
+}
+
+async function scrapeClientVersion() {
+  const resp = await fetch("https://www.youtube.com/", {
+    credentials: "omit",
+    cache: "no-cache",
+    signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const html = await resp.text();
+  const m = html.match(/"INNERTUBE_CLIENT_VERSION"\s*:\s*"([^"]+)"/) || html.match(/"clientVersion"\s*:\s*"(2\.[^"]+)"/);
+  if (!m || !CLIENT_VERSION_RE.test(m[1])) throw new Error("No client version");
+  return m[1];
+}
+
+// Concurrent callers share one lookup. force (used after the endpoint refused a request)
+// skips a stored value older than an hour; parallel forced calls share one lookup too.
+function getPlayerClientVersion(force = false) {
+  // The reader page stays open for days, so the in-memory answer is rechecked hourly
+  const fresh = clientVersionPromise && Date.now() - clientVersionLookedUpAt < 3600000;
+  if (fresh && (!force || clientVersionForced)) return clientVersionPromise;
+  clientVersionLookedUpAt = Date.now();
+  clientVersionForced = force;
+  clientVersionPromise = (async () => {
+    const { ytClientVersion: stored } = await chrome.storage.local.get("ytClientVersion");
+    const age = stored ? Date.now() - stored.at : Infinity;
+    const valid = stored && CLIENT_VERSION_RE.test(stored.version || "");
+    if (valid && age < (force ? 3600000 : CLIENT_VERSION_MAX_AGE_MS)) return stored.version;
+    try {
+      const version = await scrapeClientVersion();
+      await chrome.storage.local.set({ ytClientVersion: { version, at: Date.now() } });
+      return version;
+    } catch (e) {
+      console.warn("Could not read YouTube's client version", e);
+      // Try again on a later call rather than for every video now
+      if (stored) await chrome.storage.local.set({ ytClientVersion: { ...stored, at: Date.now() - CLIENT_VERSION_MAX_AGE_MS + 3600000 } });
+      return valid ? stored.version : FALLBACK_CLIENT_VERSION;
+    }
+  })();
+  // A failed lookup must not stick for the life of the page
+  clientVersionPromise.catch(() => (clientVersionPromise = null));
+  return clientVersionPromise;
+}
 
 function pickDetails(v) {
   const out = {};
@@ -132,17 +191,27 @@ function pickDetails(v) {
   return out;
 }
 
-async function fetchVideoDetails(id) {
-  const resp = await fetch(PLAYER_URL, {
+async function requestPlayer(id, clientVersion) {
+  return fetch(PLAYER_URL, {
     method: "POST",
     credentials: "omit",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      context: { client: { clientName: "WEB", clientVersion: PLAYER_CLIENT_VERSION, hl: "en" } },
+      context: { client: { clientName: "WEB", clientVersion, hl: "en" } },
       videoId: id,
     }),
     signal: AbortSignal.timeout(10000),
   });
+}
+
+async function fetchVideoDetails(id) {
+  const version = await getPlayerClientVersion();
+  let resp = await requestPlayer(id, version);
+  // A 400/403 usually means the client version went stale: look it up again and retry once
+  if (resp.status === 400 || resp.status === 403) {
+    const fresh = await getPlayerClientVersion(true);
+    if (fresh !== version) resp = await requestPlayer(id, fresh);
+  }
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   const vd = (await resp.json()).videoDetails;
   if (!vd) throw new Error("No video details");

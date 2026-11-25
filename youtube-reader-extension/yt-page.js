@@ -164,7 +164,7 @@ window.__ytReader = (() => {
         });
       });
     }
-    return { channels: [...found.values()] };
+    return { channels: [...found.values()], clientVersion: cfg.context.client?.clientVersion || "" };
   }
 
   // The same request YouTube's own "Unsubscribe" button sends

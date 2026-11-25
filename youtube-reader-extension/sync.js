@@ -36,7 +36,11 @@ async function runInYouTubeTab(method, args = []) {
 }
 
 async function fetchSubscriptionsFromYouTube() {
-  return (await runInYouTubeTab("listSubscriptions")).channels;
+  const res = await runInYouTubeTab("listSubscriptions");
+  // The signed-in page carries YouTube's current web client version: keep it for the
+  // player requests that fetch video lengths (see getPlayerClientVersion in shared.js).
+  await saveClientVersion(res.clientVersion);
+  return res.channels;
 }
 
 async function unsubscribeOnYouTube(channelId) {
