@@ -1172,9 +1172,12 @@ function observeForScrollMark() {
         if (e.boundingClientRect.bottom > e.rootBounds.top) continue; // below, not above
         // Videos can also move above the view without scrolling (resize, reflow)
         if (performance.now() - lastUserScrollAt > USER_SCROLL_WINDOW_MS) continue;
-        // Scrolling past a premiere or a live stream must not hide it before it airs (B2)
+        // Scrolling past an upcoming premiere or stream must not hide it before it airs (B2).
+        // One that is live now is already airing, so it is marked like any other video;
+        // skipping it too left 24/7 streams, and streams whose archive was removed (their
+        // live flag never clears), unwatched for good.
         const item = currentList.find(({ v }) => v.id === e.target.dataset.id);
-        if (item && (item.v.live || item.v.upcoming)) continue;
+        if (item && item.v.upcoming && !item.v.live) continue;
         setWatched(e.target.dataset.id, true);
         scrollObserver?.unobserve(e.target);
       }
