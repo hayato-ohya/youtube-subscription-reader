@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "YouTube登録チャンネルリーダー",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "minimum_chrome_version": "116",
   "description": "YouTubeの登録チャンネルの新着動画をRSSで確認するリーダー",
   "permissions": [

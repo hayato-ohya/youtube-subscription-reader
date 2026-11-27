@@ -62,23 +62,36 @@ function parseYouTubeFeed(xml) {
   return result;
 }
 
-// Fetch and parse one channel's feed. YouTube sometimes answers a burst of feed requests
-// with a 404 / 5xx that succeeds a moment later, so those are retried once.
+// Fetch and parse one channel's feed. The feed server fails transiently and at random:
+// at times (e.g. late Nov 2026) about half of all uncached requests get a 503, and a retry
+// a moment later is just as likely to succeed. Waiting longer doesn't raise the odds, so
+// 5xx / 429 / network errors get many retries with short jittered waits (0.5^9 = 0.2%
+// left failing). A 404 is also sometimes transient, but is usually a deleted channel, so
+// it gets only one retry.
+const FEED_RETRY_DELAYS_MS = [1000, 1500, 2000, 2500, 3000, 3000, 3000, 3000];
+
 async function fetchChannelFeed(channelId) {
   let lastError;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    if (attempt) await new Promise((r) => setTimeout(r, 1500));
+  for (let attempt = 0; ; attempt++) {
+    let status = 0;
     try {
       const resp = await fetch(channelFeedUrl(channelId), {
         cache: "no-cache",
         credentials: "omit",
         signal: AbortSignal.timeout(FEED_TIMEOUT_MS),
       });
+      status = resp.status;
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       return parseYouTubeFeed(await resp.text());
     } catch (e) {
       lastError = e;
     }
+    const maxRetries = status === 404 ? 1 : FEED_RETRY_DELAYS_MS.length;
+    // Other 4xx and a 200 that is not a feed won't change on a retry
+    const retryable = status === 0 || status === 404 || status === 429 || status >= 500;
+    if (!retryable || attempt >= maxRetries) break;
+    const base = FEED_RETRY_DELAYS_MS[attempt];
+    await new Promise((r) => setTimeout(r, base * (0.75 + Math.random() * 0.5)));
   }
   throw lastError;
 }
